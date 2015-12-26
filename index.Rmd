@@ -1,0 +1,155 @@
+# Machine Learing Assignment
+========
+Author: sohkura
+
+## Introduction
+
+The goal of this project is to predict the manner in which people  did the exercise using the data from this source: http://groupware.les.inf.puc-rio.br/har for the Cousera Machine Learing assighment. It is greatly apprecaited that it have been very generous in allowing the data to be used for this kind of assignment. 
+
+## Data Load, Initial Analysis and Clean-up
+
+1. Load the training and testing data from the website.
+2. Check the data structure and observe some data. Noticed there are many NAs and "" in the training data set. Some of the columns are defined as factor variables.
+
+```{r setoptions, echo=TRUE}
+library(knitr)
+library(caret)
+```
+
+3. Preprocess training data by converting those factore variables to numeric except "classe" variable.
+
+```{r load_data, echo=FALSE}
+if (!file.exists("C:/Users/sohkura/Documents/RStudio/coursera/data/pml-training.csv")) {
+    train.url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+    download.file(train.url, destfile="C:/Users/sohkura/Documents/RStudio/coursera/data/pml-training.csv")
+}
+if (!file.exists("C:/Users/sohkura/Documents/RStudio/coursera/data/pml-testing.csv")) {
+    test.url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+    download.file(test.url, destfile="C:/Users/sohkura/Documents/RStudio/coursera/data/pml-testing.csv")
+}
+training.data <- read.csv("C:/Users/sohkura/Documents/RStudio/coursera/data/pml-training.csv", 
+                          stringsAsFactor = FALSE, na.strings = c("NA", ""))
+testing <- read.csv("C:/Users/sohkura/Documents/RStudio/coursera/data/pml-testing.csv", 
+                    stringsAsFactor=FALSE, na.string = c("NA", ""))
+training.data$classe <- as.factor(training.data$classe)
+
+na_item <- vector()
+for (i in 1:ncol(training.data)) {
+    sum_na <- sum(is.na(training.data[,i]))
+    na_item[i] <- sum_na
+}
+na_col <- which(na_item == 0)
+training.a <- training.data[,na_col]
+training.b <- training.a[,-c(1,2,3,4,5,6,7)]
+```
+
+4. Identify those columns whose data are NA and "". 
+5. Remove those columns mostly NA from the training data. There are **`r dim(training.data)[2]`** columns in the original training data set. After removing those colunms that have mostly NA, "" and house keeping data such as X, user name, timestamps, and windows, the number of columns becomes **`r dim(training.b)[2]`**. 
+
+## Exploratory Analysis
+
+The exploratory analysis was conducted against the training data. Based on the initial analysis and observation of the data, pick the following columns that seems to summarize the total activities and plot the relationships among them:
+
+- total_accel_belt
+- total_accel_arm
+- total_accel_dumbbell
+- total_accel_forearm
+
+```{r plot_data, echo=FALSE}
+colmA <- c("total_accel_belt","total_accel_arm")
+featurePlot(x=training.data[,colmA], y=training.data$classe, plot="pairs")
+colmB <- c("total_accel_belt","total_accel_dumbbell")
+featurePlot(x=training.data[,colmB], y=training.data$classe, plot="pairs")
+colmC <- c("total_accel_belt","total_accel_forearm")
+featurePlot(x=training.data[,colmC], y=training.data$classe, plot="pairs")
+```
+
+The graph shows the clear separation of the training data and it is grouped for each pair of **total_accel_belt** vs **total_accel_arm** or **total_accel_dumbbell** or **total_accel_forearm** respectivly.
+
+## Create training and validation data partitioned from the trainng data set
+
+The training data from the original data set is partitioned into **training* data and **validation** data that will be used for the model training and validation.
+
+```{r partion_training_data, echo=TRUE}
+inTrain <- createDataPartition(y=training.b$classe, p=0.7, list=FALSE)
+training <- training.b[inTrain,]
+validation <- training.b[-inTrain,]
+dim(training)
+dim(validation)
+```
+
+## How to build the model, model Choice and Cross Validations
+
+Two prediction models were executed and compared:
+
+* Random Forest
+* Recursive Partitioning and Regression Trees
+
+The prediction models were performed using **train** function from the **caret** package. The **trainControl** was used to specify the **cross validation** with the number of resampling for fold. 
+
+```{r build_model_1, echo=TRUE, cache=TRUE}
+modFit <- train(classe ~ ., data = training, method = "rf", 
+                trControl = trainControl(method = "cv", number = 4))
+modFit
+```
+
+The accuracies of the **random forest** model with the number = 2, 4, 6, 8 were compared. The accuracy with the number = 8 was slightly better than the rest, e.g., **mtry2 accuracy** was 0.983 -> 0.988 -> 0.990 -> 0.992. However the improvement is very little. The model with the number = 4 is used to save the computation time.
+
+```{r build_model_2, echo=TRUE, cache=TRUE}
+modFit2 <- train(classe ~ ., data = training, method = "rpart", 
+                trControl = trainControl(method = "cv", number = 4))
+modFit2
+```
+
+The **Recursive Partitioning and Regression Trees** was performed. The accuracy of this model is not as accurate as that of the **random forest**. For this reason, **random forest** was chosen as the final prediction model. 
+
+```{r filan_model, echo=TRUE}
+modFit$finalModel
+```
+
+The confusio matrix of the final model of the **random forest** with the number = 4 is shown above. The classification error rate is about 1% or less for each classification, A, B, C, D, E.
+
+```{r filan_model_varimp, echo=TRUE}
+var_importance <- varImp(modFit, scale = FALSE)
+var_importance
+```
+
+The variable importance is calcuated using caret package to see which variables are more important. The further analysis is necessary, however this is skipped in this assignment. 
+
+## Expected out of sample errors with cross validaion 
+
+The model obtained from the training data set is validated against the validation data set created in the previous step. 
+
+```{r validae_model, echo=TRUE}
+pred <- predict(modFit, validation)
+predRight <- pred == validation$classe
+error.rate <- (1 - (sum(predRight)/dim(validation)[1]))
+```
+
+The out of sample error of the model is calculated againt the validation data set. The **out of sample error rate** is **`r round(error.rate,6)`** or **`r round(error.rate,3)*100` %**.
+
+## 20 different test cases
+
+The prediction model is applied to the test data that contain 20 test cases. 
+
+```{r test_model, echo=TRUE}
+test.predict <- predict(modFit, testing)
+test.predict
+```
+
+The prediction results for the 20 test cases are ouput to the corresponding files.
+
+```{r output_result, echo=TRUE}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+test.out <- c(as.character(test.predict))
+pml_write_files(test.out)
+```
+
+The End.
+
